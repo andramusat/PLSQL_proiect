@@ -1,0 +1,147 @@
+-- Scrie un bloc PL/SQL care să actualizeze cantitatea tuturor ingredientelor din baza de date cu o anumită unitate de măsură dată
+-- de utilizator. Dacă unitatea de măsură introdusă nu există în baza de date, afișează un mesaj corespunzător.
+
+ SET SERVEROUTPUT ON
+ACCEPT unitate PROMPT 'Introduceți unitatea de masura: '
+DECLARE
+   v_unitate ingrediente.unitate_de_masura%TYPE:='&unitate';
+   unitate_inexistenta EXCEPTION;
+BEGIN
+   UPDATE ingrediente
+   SET cantitate=cantitate*1.05
+   WHERE unitate_de_masura=v_unitate;
+   IF SQL%ROWCOUNT=0 THEN
+   RAISE unitate_inexistenta;
+   END IF;
+   DBMS_OUTPUT.put_line('Actualizarea a fost efectuata.');
+EXCEPTION
+   WHEN unitate_inexistenta THEN
+   DBMS_OUTPUT.put_line('Nu exista unitatea de masura introdusa in baza de date.');
+   WHEN OTHERS THEN
+   DBMS_OUTPUT.put_line('Actualizarea nu a putut fi efectuata.');
+END;
+/
+
+-- Scrie un bloc PL/SQL care să permită actualizarea numărului de produse comandate pentru un anumit produs din inventar. 
+-- Utilizatorul va introduce id-ul produsului și programul va verifica dacă există acest id în baza de date. Dacă există, 
+-- va actualiza numărul de produse la 6 dacă acesta este mai mic de 5. În caz contrar, va afișa un mesaj corespunzător.
+
+SET SERVEROUTPUT ON
+ACCEPT id PROMPT 'Introduceți id-ul produsului: '
+DECLARE 
+   v_id produse_restaurant.id_produs%TYPE:='&id';
+   CURSOR c IS SELECT id_produs, nume_produs, numar_produse
+                FROM inventar JOIN produse_restaurant USING (id_produs)
+                WHERE id_produs=UPPER(v_id);
+   v_nume produse_restaurant.nume_produs%TYPE;
+   v_numar inventar.numar_produse%TYPE;
+   produs_inexistent EXCEPTION;
+BEGIN
+   OPEN c;
+   FETCH c INTO v_id, v_nume, v_numar;
+   IF c%NOTFOUND THEN
+   RAISE produs_inexistent;
+   END IF;
+   IF v_numar<5 THEN 
+   UPDATE inventar 
+   SET numar_produse=6
+   WHERE id_produs=v_id;
+   DBMS_OUTPUT.put_line('Numarul de produse comandate pentru ' || v_nume || ' a fost actualizat la 6.');
+   ELSE 
+   DBMS_OUTPUT.put_line('Numarul de produse comandate pentru ' || v_nume || ' este mai mare de 5.');
+   END IF;
+   CLOSE c;
+EXCEPTION
+   WHEN produs_inexistent THEN 
+   DBMS_OUTPUT.put_line('Nu exista id-ul introdus.');
+END;
+/
+
+-- Creează un bloc PL/SQL care să primească de la utilizator un oraș și să afișeze toate comenzile livrate către adresele din acel oraș. 
+-- În cazul în care orașul introdus nu există în baza de date, afișează un mesaj corespunzător.
+
+SET SERVEROUTPUT ON
+ACCEPT oras PROMPT 'Introduceți orașul: '
+DECLARE
+   v_oras adrese.oras%TYPE := UPPER('&oras');
+   oras_negasit EXCEPTION;
+   CURSOR c IS 
+      SELECT adresa, id_comanda
+      FROM adrese JOIN comenzi_restaurant USING (id_adresa)
+      WHERE UPPER(oras) = v_oras;
+   v c%ROWTYPE;
+BEGIN
+   OPEN c;
+   FETCH c INTO v;
+   IF c%NOTFOUND THEN
+   CLOSE c;
+   RAISE oras_negasit;
+   END IF;
+   LOOP
+   DBMS_OUTPUT.PUT_LINE('Comanda cu id-ul ' || v.id_comanda || ' este livrata la adresa ' || v.adresa || '.');
+   FETCH c INTO v;
+   EXIT WHEN c%NOTFOUND;
+   END LOOP; 
+   CLOSE c;
+EXCEPTION
+  WHEN oras_negasit THEN
+   DBMS_OUTPUT.PUT_LINE('Orasul introdus nu exista in baza de date.');
+END;
+/
+
+-- Scrie un bloc PL/SQL care să permită utilizatorului să introducă id-ul unui angajat. 
+-- Blocul trebuie să afișeze numele angajatului și numărul total de schimburi efectuate de angajatul respectiv, în cazul în care angajatul există în baza de date.
+-- Dacă id-ul angajatului introdus de utilizator nu există, blocul trebuie să afișeze un mesaj corespunzător.
+
+SET SERVEROUTPUT ON
+ACCEPT id PROMPT 'Introduceți id-ul angajatului: '
+DECLARE
+   v_id rute.id_personal%TYPE:='&id';
+   CURSOR c IS SELECT nume_personal, prenume_personal, COUNT(id_schimb) total_schimburi
+               FROM personal JOIN rute USING (id_personal) 
+               WHERE id_personal = UPPER(v_id)
+               GROUP BY nume_personal, prenume_personal;
+   v c%ROWTYPE;
+   angajat_inexistent EXCEPTION;
+BEGIN
+ OPEN c;
+   FETCH c INTO v;
+   IF c%NOTFOUND THEN
+   CLOSE c;
+   RAISE angajat_inexistent;
+   END IF;
+   DBMS_OUTPUT.PUT_LINE('Nume personal: ' || v.nume_personal || ' ' || v.prenume_personal);
+   DBMS_OUTPUT.PUT_LINE('Numărul total de schimburi: ' || v.total_schimburi);
+   CLOSE c;
+EXCEPTION
+   WHEN angajat_inexistent THEN
+   DBMS_OUTPUT.PUT_LINE('Nu exista date pentru angajatul specificat.');
+   WHEN OTHERS THEN
+   DBMS_OUTPUT.PUT_LINE('A aparut o eroare.' || SQLERRM);
+END;
+/
+
+-- Scrie  un bloc PL/SQL care să afișeze prenumele unui client pe baza unui id introdus de utilizator.
+-- Verifică dacă prenumele clientului asociat id-ului introdus are o lungime mai mare de 5 caractere. Dacă lungimea prenumelui este mai mare de 5 caractere, 
+-- afișează id-ul clientului și prenumele său, iar dacă nu, afișează un mesaj corespunzător.
+
+SET SERVEROUTPUT ON
+ACCEPT id PROMPT 'Introduceți id-ul clientului: '
+DECLARE
+   v_id clienti_restaurant.id_client%TYPE:=&id;
+   v_prenume clienti_restaurant.prenume_client%TYPE;
+BEGIN
+   FOR client IN (SELECT prenume_client FROM clienti_restaurant WHERE id_client=v_id) LOOP
+   v_prenume:=client.prenume_client;
+   IF LENGTH(v_prenume)>5 THEN 
+   DBMS_OUTPUT.put_line('Clientul cu id-ul ' || v_id || ' are prenumele ' || v_prenume || '.');
+   ELSE
+   RAISE NO_DATA_FOUND;
+   END IF;
+   END LOOP;
+EXCEPTION
+   WHEN NO_DATA_FOUND THEN
+   DBMS_OUTPUT.put_line('Clinetul cu id-ul ' || v_id || ' nu are prenumele cu o lungime mai mare de 5 caractere.');
+END; 
+/
+

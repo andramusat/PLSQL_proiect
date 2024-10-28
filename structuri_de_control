@@ -1,0 +1,169 @@
+-- Scrie un bloc PL/SQL care să permită utilizatorului să introducă id-ul comenzii de la tastatură și afișează detaliile comenzii respective, 
+-- inclusiv data comenzii, numele complet al clientului, produsul comandat, numărul de produse comandate, adresa de livrare, orașul și codul poștal. 
+-- De asemenea, adaugă o verificare pentru a afișa un mesaj dacă comanda conține mai mult de un produs comandat sau un singur produs comandat.
+
+SET SERVEROUTPUT ON
+ACCEPT id PROMPT 'Introduceți id-ul comenzii de la tastatură: '
+DECLARE
+   v_id_comanda comenzi_restaurant.id_comanda%TYPE:='&id';   
+   CURSOR c_comenzi IS SELECT id_comanda, data_comanda, id_client, nume_client, prenume_client, nume_produs, numar_produse, adresa, oras, cod_postal
+                       FROM comenzi_restaurant JOIN inventar USING (id_comanda)
+                       JOIN clienti_restaurant USING (id_client)
+                       JOIN produse_restaurant USING (id_produs)
+                       JOIN adrese USING (id_adresa)
+                       WHERE id_comanda=v_id_comanda;
+   v c_comenzi%ROWTYPE; 
+BEGIN
+   OPEN c_comenzi;
+   LOOP
+   FETCH c_comenzi INTO v;
+   EXIT WHEN c_comenzi%NOTFOUND;
+   DBMS_OUTPUT.put_line('Detalii comanda: ');
+   DBMS_OUTPUT.put_line('Id-ul comenzii: ' || v_id_comanda);
+   DBMS_OUTPUT.put_line('Data comenzii: ' || v.data_comanda);
+   DBMS_OUTPUT.put_line('Numele clientului: ' || v.nume_client || ' ' || v.prenume_client);
+   DBMS_OUTPUT.put_line('Produsul comandat: ' || v.nume_produs);      
+   DBMS_OUTPUT.put_line('Numarul de produse comandate: ' || v.numar_produse);      
+   DBMS_OUTPUT.put_line('Adresa: ' || v.adresa);
+   DBMS_OUTPUT.put_line('Orasul: ' || v.oras);
+   DBMS_OUTPUT.put_line('Codul postal: ' || v.cod_postal); 
+   IF v.numar_produse>1 THEN
+   DBMS_OUTPUT.put_line('Aceasta comanda contine mai multe produse comandate.');
+   ELSE
+   DBMS_OUTPUT.put_line('Aceasta comanda contine un produs comandat.');
+   END IF;
+   END LOOP;
+   CLOSE c_comenzi;      
+END;
+/
+
+-- Scrie un bloc PL/SQL în care să calculezi suma totală a tuturor comenzilor.
+
+SET SERVEROUTPUT ON
+DECLARE
+    v_suma_totala NUMBER:=0;
+BEGIN
+    FOR comanda IN (SELECT * FROM comenzi_restaurant) LOOP
+    DECLARE
+        v_pret_total NUMBER;
+      BEGIN
+         SELECT SUM(pret_produs * numar_produse)
+         INTO v_pret_total
+         FROM produse_restaurant 
+         JOIN inventar USING (id_produs)
+         WHERE id_comanda = comanda.id_comanda;
+         v_suma_totala:=v_suma_totala+v_pret_total;
+      END;
+   END LOOP;
+   IF SQL%NOTFOUND THEN
+   DBMS_OUTPUT.PUT_LINE('Nu exista comenzi.');
+   ELSE
+   DBMS_OUTPUT.PUT_LINE('Suma totala a tuturor comenzilor este: ' || v_suma_totala);
+   END IF;
+END;
+/
+
+-- Scrie un bloc PL/SQL prin care să afișezi informații ale produselor cu cantitatea disponibilă mai mică de 100 kg.
+
+SET SERVEROUTPUT ON
+DECLARE
+   v_nr NUMBER:=0; 
+   CURSOR c_ingredient IS SELECT * FROM ingrediente;
+   v_ingredient c_ingredient%ROWTYPE;
+BEGIN
+   OPEN c_ingredient; 
+   LOOP
+   FETCH c_ingredient INTO v_ingredient; 
+   EXIT WHEN c_ingredient%NOTFOUND;
+   IF v_ingredient.cantitate<100 THEN
+   v_nr:=v_nr+1; 
+   DBMS_OUTPUT.PUT_LINE('Produs ' || v_nr || ':');
+   DBMS_OUTPUT.PUT_LINE('ID: ' || v_ingredient.id_ingredient);
+   DBMS_OUTPUT.PUT_LINE('Nume: ' || v_ingredient.nume_ingredient);
+   DBMS_OUTPUT.PUT_LINE('Cantitate disponibila: ' || v_ingredient.cantitate || ' ' || v_ingredient.unitate_de_masura);
+   END IF;
+   END LOOP;
+   CLOSE c_ingredient; 
+   IF v_nr=0 THEN
+   DBMS_OUTPUT.PUT_LINE('Nu exista produse cu cantitatea disponibila mai mica de 100 kg.');
+   END IF;
+END;/
+
+-- Scrie un bloc PL/SQL prin care să actualizezi cantitatea unui ingredient specificat prin id.
+
+SET SERVEROUTPUT ON
+ACCEPT id PROMPT 'Introduceți id-ul ingredientului: '
+ACCEPT cantitate PROMPT 'Introduceți cantitatea: '
+DECLARE
+   v_id_ingredient ingrediente.id_ingredient%TYPE:='&id'; 
+   v_cant_noua ingrediente.cantitate%TYPE:=&cantitate;
+   CURSOR c_ingredient IS 
+   SELECT cantitate, unitate_de_masura
+   FROM ingrediente
+   WHERE id_ingredient = v_id_ingredient;
+   v c_ingredient%ROWTYPE;
+BEGIN
+   OPEN c_ingredient;
+   FETCH c_ingredient INTO v; 
+   IF c_ingredient%FOUND THEN  
+   UPDATE ingrediente
+   SET cantitate=v_cant_noua
+   WHERE id_ingredient=v_id_ingredient;
+   DBMS_OUTPUT.PUT_LINE('Cantitatea pentru ingredientul cu id-ul ' || v_id_ingredient || ' a fost actualizata la ' || v_cant_noua || ' ' || v.unitate_de_masura ||'.');
+   ELSE
+   CLOSE c_ingredient;
+   DBMS_OUTPUT.PUT_LINE('Ingredientul cu id-ul ' || v_id_ingredient || ' nu exista.');
+   END IF;
+END; 
+/
+
+-- Scrie un bloc PL/SQL prin care să calculezi orele lucrate de fiecare angajat în fiecare zi.
+
+SET SERVEROUTPUT ON
+DECLARE
+    v_id_personal personal.id_personal%TYPE;
+    v_ore_lucrate NUMBER:=0;
+BEGIN
+    FOR personal_rec IN (SELECT DISTINCT id_personal FROM rute) LOOP
+    v_id_personal:=personal_rec.id_personal;
+    FOR ruta IN (SELECT id_schimb, EXTRACT(HOUR FROM TO_TIMESTAMP(sfarsitul_programului, 'HH24:MI')) - EXTRACT(HOUR FROM TO_TIMESTAMP(inceputul_programului, 'HH24:MI')) AS ore_lucrate
+                 FROM rute
+                 JOIN schimburi USING (id_schimb)
+                 WHERE id_personal=v_id_personal) LOOP
+        v_ore_lucrate:=v_ore_lucrate+ruta.ore_lucrate;
+        END LOOP;
+        DBMS_OUTPUT.PUT_LINE('Angajatul ' || v_id_personal || ' a lucrat ' || v_ore_lucrate || ' ore.');
+    END LOOP;
+END;
+/
+
+-- Scrie un bloc PL/SQL în care să se solicite utilizatorului introducerea unei date și să se afișeze toți angajații 
+-- care sunt programați pentru acea dată. Dacă nu există programări pentru data respectivă trebuie să se afișeze un mesaj corespunzător.
+
+SET SERVEROUTPUT ON
+ACCEPT data PROMPT 'Introduceți data: '
+DECLARE
+    v_data rute.data%TYPE:=TO_DATE('&data', 'DD-MM-YYYY');
+    CURSOR c IS SELECT prenume_personal, nume_personal, id_ruta, data
+                         FROM personal JOIN rute USING (id_personal)
+                         JOIN schimburi USING (id_schimb)
+                         WHERE data=v_data;
+    v c%ROWTYPE;
+    v_programari NUMBER:=0;
+BEGIN
+    OPEN c;
+    LOOP
+    FETCH c INTO v;
+    EXIT WHEN c%NOTFOUND;
+    v_programari:=1;
+    DBMS_OUTPUT.put_line('Angajatul ' || v.prenume_personal || ' ' || v.nume_personal || ' este programat pentru ruta ' || v.id_ruta || ' in data de ' || v_data || '.');
+    END LOOP;
+    CLOSE C;
+    IF v_programari=0 THEN
+    DBMS_OUTPUT.put_line('Nu exista programari pentru data de ' || v_data || '.');
+    END IF;
+END; 
+/
+
+
+

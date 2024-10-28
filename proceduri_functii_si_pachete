@@ -1,0 +1,376 @@
+-- Creează o procedură PL/SQL care să afișeze numărul total de rute pentru fiecare angajat într-un anumit interval de timp.
+
+SET SERVEROUTPUT ON
+CREATE OR REPLACE PROCEDURE numara_rute_pe_angajat(data_inceput IN DATE, data_sfarsit IN DATE)
+IS
+    total_rute NUMBER:=0;
+    CURSOR c IS
+        SELECT id_personal, COUNT(*) AS total_rute
+        FROM rute
+        WHERE data BETWEEN data_inceput AND data_sfarsit
+        GROUP BY id_personal;
+    v_id_personal rute.id_personal%TYPE;
+    total_rute_personal NUMBER;
+    ex EXCEPTION;
+BEGIN    
+    OPEN c;
+    LOOP
+        FETCH c INTO v_id_personal, total_rute_personal;
+        EXIT WHEN c%NOTFOUND;
+        
+        DBMS_OUTPUT.PUT_LINE('Angajatul ' || v_id_personal || ' a avut ' || total_rute_personal || ' rute.');
+        
+        total_rute:=total_rute+total_rute_personal;
+    END LOOP;
+    CLOSE c;
+    
+    DBMS_OUTPUT.PUT_LINE('Numarul total de rute pentru intervalul ' || data_inceput || ' - ' || data_sfarsit || ' este: ' || total_rute);
+    
+    IF total_rute=0 THEN
+        RAISE ex;
+    END IF;
+    
+EXCEPTION
+    WHEN ex THEN
+        DBMS_OUTPUT.PUT_LINE('Nu s-au gasit rute pentru intervalul dat.');
+END;
+/
+-- apelare:
+EXECUTE numara_rute_pe_angajat(TO_DATE('01-12-2023', 'DD-MM-YYYY'), TO_DATE('15-12-2023', 'DD-MM-YYYY'));
+/
+
+-- Creează o procedură PL/SQL care să permită actualizarea cantității unui anumit ingredient în rețeta în care este utilizat.
+
+CREATE OR REPLACE PROCEDURE actualizeaza_cantitate_ingredient_reteta(p_id_ingredient IN VARCHAR2, p_noua_cantitate IN NUMBER) 
+IS
+    CURSOR c IS
+        SELECT r.*, i.nume_ingredient
+        FROM retete r
+        JOIN ingrediente i ON r.id_ingredient=i.id_ingredient
+        WHERE r.id_ingredient=p_id_ingredient;
+    ingredient_negasit EXCEPTION;
+    v c%ROWTYPE;
+BEGIN
+    OPEN c;    
+    FETCH c INTO v;
+    IF c%NOTFOUND THEN
+        CLOSE c;
+        RAISE ingredient_negasit;
+    END IF; 
+    CLOSE c;
+    
+    UPDATE retete
+    SET cantitate_ingredient=p_noua_cantitate
+    WHERE id_ingredient=p_id_ingredient;
+        
+    DBMS_OUTPUT.PUT_LINE('Cantitatea ingredientului ' || v.nume_ingredient || ' a fost actualizata la ' || p_noua_cantitate || ' ' || v.unitate_de_masura || ' pentru retata preparatului ' || v.id_reteta || '.');
+    
+EXCEPTION
+    WHEN ingredient_negasit THEN
+        DBMS_OUTPUT.PUT_LINE('Ingredientul specificat nu a fost gasit in nicio reteta.');    
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('A intervenit o eroare in procesul de actualizare a cantitatii ingredientului in reteta.');
+END;
+/
+-- apelare:
+EXECUTE actualizeaza_cantitate_ingredient_reteta('I64', 3);
+/
+
+-- Creează o procedură PL/SQL pentru a calcula cantitatea totală comandată de produse.
+
+CREATE OR REPLACE PROCEDURE cantitate_totala_comandata IS
+    TYPE rec_produs IS RECORD (
+        denumire_produs produse_restaurant.nume_produs%TYPE,
+        cantitate_totala NUMBER
+    );
+    
+    TYPE tab_produse IS TABLE OF rec_produs INDEX BY PLS_INTEGER;
+    
+    v_tab_produse tab_produse;
+BEGIN
+    SELECT nume_produs, NVL(SUM(numar_produse), 0)
+    BULK COLLECT INTO v_tab_produse
+    FROM produse_restaurant JOIN inventar USING (id_produs)
+    JOIN comenzi_restaurant USING (id_comanda)
+    GROUP BY nume_produs;
+    
+    FOR i IN 1..v_tab_produse.COUNT LOOP
+        DBMS_OUTPUT.PUT_LINE('Produsul ' || v_tab_produse(i).denumire_produs || ' a fost comandat in cantitatea totala de ' || v_tab_produse(i).cantitate_totala || ' buc.');
+    END LOOP;
+END;
+/
+-- apelare: 
+EXECUTE cantitate_totala_comandata;
+/
+
+-- Creează o funcție PL/SQL de verificare a prețului produselor din restaurant. Utilizatorul va introduce id-ul unui produs, 
+-- iar aceasta va afișa dacă prețul produsului este mai mare sau mai mic decât prețul mediu al tuturor produselor disponibile în restaurant. 
+-- De asemenea, va afișa informații despre produsul respectiv, inclusiv numele, prețul și moneda.
+
+CREATE OR REPLACE FUNCTION verifica_pretul(p_id_produs IN produse_restaurant.id_produs%TYPE, p_pret_mediu IN NUMBER)
+RETURN BOOLEAN 
+IS
+    v_pret produse_restaurant.pret_produs%TYPE;
+BEGIN
+    SELECT pret_produs INTO v_pret 
+    FROM produse_restaurant 
+    WHERE id_produs=p_id_produs;
+
+    IF v_pret>p_pret_mediu THEN
+        RETURN TRUE;
+    ELSE
+        RETURN FALSE;
+    END IF;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RETURN NULL;
+END;
+/
+
+CREATE OR REPLACE PROCEDURE calcul_pret_mediu(pret_mediu OUT NUMBER)
+IS
+BEGIN
+    SELECT AVG(pret_produs) INTO pret_mediu
+    FROM produse_restaurant;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        pret_mediu:=NULL;
+END;
+/
+
+-- apelare
+
+ACCEPT id PROMPT 'Introduceti id-ul produsului: '
+
+DECLARE
+    v_id produse_restaurant.id_produs%TYPE:=UPPER('&id');
+    v_pret_mediu NUMBER;
+    CURSOR c IS SELECT nume_produs, pret_produs, moneda
+                FROM produse_restaurant 
+                WHERE id_produs=v_id;
+    v c%ROWTYPE;
+BEGIN
+    calcul_pret_mediu(v_pret_mediu);
+    DBMS_OUTPUT.put_line('Pretul mediu al produselor: ' || v_pret_mediu);
+
+    OPEN c;
+    LOOP
+    FETCH c INTO v;
+    EXIT WHEN c%NOTFOUND;
+    IF (verifica_pretul(v_id, v_pret_mediu) IS NULL) THEN
+        DBMS_OUTPUT.PUT_LINE('Produs cu ID invalid!');
+    ELSIF (verifica_pretul(v_id, v_pret_mediu)) THEN
+        DBMS_OUTPUT.PUT_LINE('Produsul ' || v.nume_produs || ' cu id-ul ' || v_id || ' are pretul mai mare decat pretul mediu, mai exact ' || v.pret_produs || ' ' || v.moneda || '.');
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('Produsul ' || v.nume_produs || ' cu id-ul ' || v_id || ' are pretul mai mic decat pretul mediu, mai exact ' || v.pret_produs || ' ' || v.moneda || '.');
+    END IF;
+    END LOOP;
+    CLOSE c;
+END;
+/
+
+-- Creează o funcție PL/SQL care să actualizeze adresa din tabela adrese.
+-- Apelează această funcție într-un bloc PL/SQL care solicită utilizatorului să introducă id-ul adresei și noua adresă.
+
+CREATE OR REPLACE FUNCTION modifica_adresa(p_id_adresa IN adrese.id_adresa%TYPE, p_noua_adresa IN adrese.adresa%TYPE)
+RETURN BOOLEAN
+IS
+    v_count NUMBER;
+BEGIN
+    SELECT COUNT(*)
+    INTO v_count
+    FROM adrese
+    WHERE id_adresa=p_id_adresa;
+
+    IF v_count>0 THEN
+        UPDATE adrese
+        SET adresa=p_noua_adresa
+        WHERE id_adresa=p_id_adresa;
+        RETURN TRUE;
+    ELSE
+        RETURN FALSE;
+    END IF;
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RETURN FALSE; 
+END;
+/
+-- apelare
+SET SERVEROUTPUT ON 
+ACCEPT id PROMPT 'Introduceți id-ul adresei (10-24):'
+ACCEPT adresa PROMPT 'Intorduceți noua adresa:'
+
+DECLARE
+    v_id_adresa adrese.id_adresa%TYPE:=&id; 
+    v_noua_adresa adrese.adresa%TYPE:='&adresa'; 
+    v_modificat BOOLEAN;
+BEGIN
+    v_modificat:=modifica_adresa(v_id_adresa, v_noua_adresa);
+
+    IF v_modificat THEN
+        DBMS_OUTPUT.PUT_LINE('Adresa a fost modificata cu succes!');
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('Nu s-a putut modifica adresa sau id-ul adresei specificat nu exista!');
+    END IF;
+END;
+/
+
+-- Creează o funcție PL/SQL care să calculeze media tarifelor pe oră pentru toți angajații dintr-o anumită poziție.
+
+CREATE OR REPLACE FUNCTION calculeaza_medie_tarif(p_pozitie IN personal.pozitie%TYPE) 
+RETURN NUMBER
+IS
+    v_suma_tarife NUMBER:=0;
+    v_numar_angajati NUMBER:=0;
+    v_medie_tarif NUMBER;
+    ex EXCEPTION;
+BEGIN
+    FOR rec IN (SELECT tarif_pe_ora FROM personal WHERE pozitie = p_pozitie) LOOP
+        v_suma_tarife:=v_suma_tarife+rec.tarif_pe_ora;
+        v_numar_angajati:=v_numar_angajati+1;
+    END LOOP;
+
+    IF v_numar_angajati=0 THEN
+        RAISE ex;
+    END IF;
+
+    v_medie_tarif := v_suma_tarife / v_numar_angajati;
+    RETURN v_medie_tarif;
+EXCEPTION
+    WHEN ex THEN
+        DBMS_OUTPUT.put_line('Nu exista personal cu pozitia specificata!');  
+        RETURN NULL; 
+END;
+/
+-- apelare
+DECLARE
+    v_medie_tarif NUMBER;
+BEGIN
+    v_medie_tarif:=calculeaza_medie_tarif('Bucatar');
+
+    IF v_medie_tarif IS NOT NULL THEN
+        DBMS_OUTPUT.PUT_LINE('Media tarifelor pe ora pentru pozitia "Bucatar" este: ' || v_medie_tarif);
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('Nu exista angajati cu poziția "Bucatar".');
+    END IF;
+END;
+/
+
+-- Creează un pachet PL/SQL pentru gestionarea produselor într-un restaurant care să conțină:
+-- --procedura inserare_produs trebuie să permită inserarea unui nou produs în tabelul produse_restaurant;
+-- --funcția obtine_pret_produs trebuie să returneze prețul unui produs bazat pe id-ul produsului furnizat. Dacă id-ul produsului nu există în tabelul produse_restaurant, funcția trebuie să returneze NULL;
+-- Testează funcționalitatea pachetului.
+
+CREATE OR REPLACE PACKAGE pachet_produse_restaurant AS
+    PROCEDURE inserare_produs(
+        p_id_produs IN produse_restaurant.id_produs%TYPE,
+        p_nume_produs IN produse_restaurant.nume_produs%TYPE,
+        p_categorie_produs IN produse_restaurant.categorie_produs%TYPE,
+        p_marime_produs IN produse_restaurant.marime_produs%TYPE,
+        p_pret_produs IN produse_restaurant.pret_produs%TYPE
+    );    
+   
+    FUNCTION obtine_pret_produs(p_id_produs IN produse_restaurant.id_produs%TYPE) RETURN NUMBER;
+END;
+/
+
+CREATE OR REPLACE PACKAGE BODY pachet_produse_restaurant AS
+    PROCEDURE inserare_produs(
+        p_id_produs IN produse_restaurant.id_produs%TYPE,
+        p_nume_produs IN produse_restaurant.nume_produs%TYPE,
+        p_categorie_produs IN produse_restaurant.categorie_produs%TYPE,
+        p_marime_produs IN produse_restaurant.marime_produs%TYPE,
+        p_pret_produs IN produse_restaurant.pret_produs%TYPE
+    ) IS
+    BEGIN
+        INSERT INTO produse_restaurant (id_produs, nume_produs, categorie_produs, marime_produs, pret_produs)
+        VALUES (p_id_produs, p_nume_produs, p_categorie_produs, p_marime_produs, p_pret_produs);        
+        DBMS_OUTPUT.PUT_LINE('Produsul ' || p_nume_produs || ' a fost inserat cu succes.');
+    END;
+    
+    FUNCTION obtine_pret_produs(p_id_produs IN produse_restaurant.id_produs%TYPE) RETURN NUMBER IS
+        v_pret NUMBER;
+    BEGIN
+        SELECT pret_produs INTO v_pret
+        FROM produse_restaurant
+        WHERE id_produs=p_id_produs;
+        
+        RETURN v_pret;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RETURN NULL;
+    END;
+END;
+/
+
+-- apelare
+BEGIN
+    pachet_produse_restaurant.inserare_produs('P16', 'Ciorba Radauteana', 'Ciorba', 'portie mare', 15.5);
+END;
+/
+
+DECLARE
+    v_pret NUMBER;
+BEGIN
+    v_pret:=pachet_produse_restaurant.obtine_pret_produs('P16');
+    IF v_pret IS NOT NULL THEN
+        DBMS_OUTPUT.PUT_LINE('Pretul produsului este: ' || v_pret);
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('Produsul nu a fost gasit.');
+    END IF;
+END;
+/
+
+-- Creează un pachet PL/SQL care să se denumească pachet_adrese care și să furnizeze funcționalități pentru actualizarea 
+-- și obținerea detaliilor adresei. Acesta trebuie să conțină o procedură pentru actualizarea adresei și o funcție pentru obținerea
+--  detaliilor adresei pe baza id-ului adresei furnizat.
+
+CREATE OR REPLACE PACKAGE pachet_adrese AS
+     PROCEDURE actualizare_adresa(p_id_adresa IN adrese.id_adresa%TYPE, p_noua_adresa IN adrese.adresa%TYPE);
+     FUNCTION detalii_adresa(p_id_adresa IN adrese.id_adresa%TYPE) RETURN VARCHAR2;
+END;
+/
+
+CREATE OR REPLACE PACKAGE BODY pachet_adrese AS
+    PROCEDURE actualizare_adresa(p_id_adresa IN adrese.id_adresa%TYPE, p_noua_adresa IN adrese.adresa%TYPE) IS
+    BEGIN
+        UPDATE adrese
+        SET adresa=p_noua_adresa
+        WHERE id_adresa=p_id_adresa;
+        
+        DBMS_OUTPUT.PUT_LINE('Adresa cu id-ul ' || p_id_adresa || ' a fost actualizata cu succes.');
+    END;
+    
+    FUNCTION detalii_adresa(p_id_adresa IN adrese.id_adresa%TYPE) RETURN VARCHAR2 IS
+        v_detalii VARCHAR2(200);
+    BEGIN
+        SELECT adresa || ', ' || oras || ', ' || cod_postal INTO v_detalii
+        FROM adrese
+        WHERE id_adresa=p_id_adresa;
+        
+        RETURN v_detalii;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RETURN NULL;
+    END;
+END;
+/
+
+-- apelare
+BEGIN
+    pachet_adrese.actualizare_adresa('25', 'Strada Anton Pann, Nr.14');
+END;
+/
+
+DECLARE
+    v_detalii_adresa VARCHAR2(200);
+BEGIN
+    v_detalii_adresa := pachet_adrese.detalii_adresa('25');
+    IF v_detalii_adresa IS NOT NULL THEN
+        DBMS_OUTPUT.PUT_LINE('Detalii adresa: ' || v_detalii_adresa);
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('Nu s-au gasit detalii pentru adresa specificata.');
+    END IF;
+END;
+/
+

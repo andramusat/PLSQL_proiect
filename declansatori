@@ -1,0 +1,105 @@
+-- Implementează un trigger care să fie declanșat înainte de inserarea sau actualizarea în tabela ingrediente. 
+-- Trigger-ul ar trebui să valideze cantitatea introdusă sau actualizată pentru fiecare înregistrare nouă sau actualizată. 
+-- Dacă cantitatea este negativă, trigger-ul ar trebui să genereze o excepție cu un mesaj corespunzător. 
+-- Testează pentru a garanta că doar cantități valide sunt introduse sau actualizate în tabela ingrediente.
+
+CREATE OR REPLACE TRIGGER trg_ingrediente_actiuni 
+BEFORE INSERT OR DELETE OR UPDATE ON ingrediente
+FOR EACH ROW 
+DECLARE
+    v_cantitate_disponibila NUMBER;
+BEGIN
+   IF INSERTING THEN 
+        IF :NEW.cantitate>=0 THEN
+           DBMS_OUTPUT.put_line('Cantitatea introdusa este valida.');
+        ELSE
+           RAISE_APPLICATION_ERROR(-20001, 'Cantitatea pe care doresti sa o introduci trebuie sa fie pozitiva.');
+        END IF;
+   ELSIF UPDATING THEN 
+        IF :NEW.cantitate>=0 THEN 
+           DBMS_OUTPUT.put_line('Cantitatea actualizata este valida.');
+        ELSE
+           RAISE_APPLICATION_ERROR(-200002, 'Cantitatea pe care doresti sa o actualizezi trebuie sa fie pozitiva.');
+        END IF;
+   END IF;
+END;
+/
+
+INSERT INTO ingrediente VALUES('I74', 'Faina', 10, 'kg');
+
+UPDATE ingrediente
+SET cantitate=20
+WHERE id_ingredient='I74';
+
+-- Implementează un trigger pentru tabela produse_restaurant care să detecteze modificările semnificative de preț ale produselor.
+-- Trigger-ul trebuie să afișeze un mesaj atunci când prețul unui produs este modificat cu mai mult de 10%. 
+-- Asigură-te că trigger-ul funcționează corect și că mesajele sunt afișate corespunzător în cazul modificărilor de preț.
+
+CREATE OR REPLACE TRIGGER trg_modificari_pret
+FOR UPDATE OF pret_produs ON produse_restaurant
+COMPOUND TRIGGER
+    v_pret_vechi NUMBER;
+    BEFORE EACH ROW IS
+    BEGIN
+        v_pret_vechi:=:OLD.pret_produs;
+    END BEFORE EACH ROW;
+
+    AFTER EACH ROW IS
+    BEGIN
+        IF ABS(:NEW.pret_produs-v_pret_vechi)/v_pret_vechi>0.1 THEN
+            DBMS_OUTPUT.PUT_LINE('Modificare de pret semnificativa pentru produsul ' || :NEW.nume_produs || '.');
+        END IF;
+    END AFTER EACH ROW;
+END;
+/
+UPDATE produse_restaurant
+SET pret_produs=pret_produs*1.15
+WHERE id_produs='P2'; 
+
+-- Creează un trigger care să se activeze înainte de actualizarea tarifului pe oră pentru angajații din tabela personal. 
+-- Acesta trebuie să rețină poziția anterioară a angajatului înainte de actualizare și să verifice dacă tariful pe oră a fost modificat.
+--  În caz afirmativ, trigger-ul trebuie să afișeze un mesaj care să indice că tariful a fost actualizat pentru angajatul respectiv. 
+
+CREATE OR REPLACE TRIGGER trg_personal_update
+BEFORE UPDATE OF tarif_pe_ora ON personal
+FOR EACH ROW
+DECLARE
+    v_pozitie_anterioara VARCHAR2(30);
+BEGIN
+    v_pozitie_anterioara:=:OLD.pozitie;
+    IF :NEW.tarif_pe_ora<>:OLD.tarif_pe_ora THEN
+        DBMS_OUTPUT.PUT_LINE('Tariful pe ora a fost actualizat pentru angajatul cu id-ul: ' || :NEW.id_personal || '.');
+    END IF;
+END;
+/
+UPDATE personal
+SET tarif_pe_ora=tarif_pe_ora*1.1 
+WHERE id_personal='ANG1';
+
+-- Implementează un trigger în tabela adrese care să prevină inserarea unei adrese noi în cazul în care există comenzi asociate acelei adrese. 
+-- De asemenea, acesta ar trebui să ridice o excepție dacă se încearcă inserarea unei adrese fără specificarea unui ID.
+
+CREATE OR REPLACE TRIGGER trg_adrese_insert
+BEFORE INSERT ON adrese
+FOR EACH ROW
+DECLARE
+    v_numar_comenzi NUMBER;
+BEGIN
+    SELECT COUNT(*)
+    INTO v_numar_comenzi
+    FROM comenzi_restaurant
+    WHERE id_adresa=:OLD.id_adresa; 
+
+    IF v_numar_comenzi>0 THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Nu se poate adauga adresa. Exista comenzi asociate.');
+    END IF;
+
+    IF :NEW.id_adresa IS NULL THEN
+        RAISE_APPLICATION_ERROR(-20002, 'Nu se poate adauga adresa fara specificarea unui ID.');
+    END IF;
+END;
+/
+INSERT INTO adrese VALUES (25, 'Strada Avram Iancu, Nr. 13', 'Bucuresti', 987634);
+
+
+
